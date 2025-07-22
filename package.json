@@ -1,0 +1,68 @@
+{
+  "name": "ak-sheets",
+  "version": "1.0.0",
+  "description": "A modern, simple interface to work deeply with Google Sheets data",
+  "main": "./src/index.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "scripts": {
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:run",
+    "postinstall": "echo 'Thank you for installing ak-sheets! Visit https://github.com/ak/ak-sheets for documentation.'"
+  },
+  "keywords": [
+    "google-sheets",
+    "google-api",
+    "spreadsheet",
+    "csv",
+    "data",
+    "esm"
+  ],
+  "author": "AK",
+  "license": "ISC",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "googleapis": "^133.0.0",
+    "papaparse": "^5.4.1",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/papaparse": "^5.3.14",
+    "dotenv": "^16.4.5",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.2",
+    "@vitest/ui": "^1.2.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ak/ak-sheets.git"
+  },
+  "homepage": "https://github.com/ak/ak-sheets#readme",
+  "bugs": {
+    "url": "https://github.com/ak/ak-sheets/issues"
+  }
+}
