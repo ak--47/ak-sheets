@@ -14,14 +14,17 @@
     "src/"
   ],
   "scripts": {
-    "test": "vitest",    
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run -t \"Data Conversion\"",
+    "test:integration": "vitest run -t \"Core Functionality|Error Handling\"",
     "test:coverage": "vitest run --coverage",
     "build": "tsc --noEmit",
     "lint": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit",
-	"post": "npm publish"
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:unit"
   },
   "keywords": [
     "google-sheets",

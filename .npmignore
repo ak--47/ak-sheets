@@ -1,48 +1,32 @@
 # Test files
 test/
 *.test.js
-*.spec.js
-__tests__/
-coverage/
+test-spreadsheet.xlsx
+vitest.config.js
 
 # Development files
 .env
 .env.*
 credentials.json
-test-spreadsheet.xlsx
+CLAUDE.md
+TESTING.md
+
+# Build files
+tsconfig.json
+node_modules/
+package-lock.json
 
 # IDE files
 .vscode/
 .idea/
-*.swp
-*.swo
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Development dependencies
-node_modules/
-
-# Build artifacts
-dist/
-build/
-
-# Configuration files
-vitest.config.js
-.eslintrc.cjs
-.prettierrc
-tsconfig.json
-
 # Git files
 .git/
 .gitignore
 
-# Documentation (except README)
-CLAUDE.md
+# Original test backup
+test/index.test.js.original

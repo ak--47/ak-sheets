@@ -67,6 +67,13 @@ init({
 // Option 3: Environment variable
 // Set SHEETS_CREDENTIALS=./credentials.json
 init({});
+
+// Option 4: Custom retry configuration
+init({
+  credentials: './credentials.json',
+  maxRetries: 3,
+  maxBackoffMs: 32000
+});
 ```
 
 ### Core Functions
@@ -143,6 +150,33 @@ export NODE_ENV=development
 export NODE_ENV=production
 ```
 
+## 🔄 Rate Limiting & Error Handling
+
+ak-sheets implements robust exponential backoff retry logic to handle Google Sheets API quota limits:
+
+- **Automatic retries** for quota exceeded (429) and server errors (500-504)
+- **Exponential backoff** with jitter to avoid thundering herd
+- **Configurable retry limits** and maximum backoff times
+- **Detailed logging** of retry attempts and failures
+
+### Quota Limits
+- **Read requests**: 300/minute per project, 60/minute per user
+- **Write requests**: 300/minute per project, 60/minute per user
+
+### Retry Configuration
+```javascript
+init({
+  credentials: './credentials.json',
+  maxRetries: 5,        // Max retry attempts (default: 5)
+  maxBackoffMs: 64000   // Max backoff time in ms (default: 64s)
+});
+```
+
+The retry algorithm follows Google's recommended exponential backoff:
+- **Base delay**: `2^n * 1000ms` (1s, 2s, 4s, 8s, 16s...)
+- **Jitter**: Random 0-1000ms added to prevent synchronization
+- **Max backoff**: Configurable ceiling (default 64 seconds)
+
 ## 📝 Examples
 
 ### Multi-tab Operations
@@ -176,8 +210,14 @@ const backToCsv = jsonToCsv(json);
 # Install dependencies
 npm install
 
-# Run tests
+# Run all tests
 npm test
+
+# Run only unit tests (fast, no API calls)
+npm run test:unit
+
+# Run only integration tests (minimal API usage)
+npm run test:integration
 
 # Type checking
 npm run typecheck
@@ -185,6 +225,8 @@ npm run typecheck
 # Linting
 npm run lint
 ```
+
+**Testing Strategy**: ak-sheets uses a streamlined test approach to minimize API quota usage. See [TESTING.md](./TESTING.md) for details.
 
 ## 📄 License
 

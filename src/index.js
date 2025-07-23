@@ -21,6 +21,10 @@ let sheets = null;
 /** @type {any} */
 let drive = null;
 
+// Retry configuration - can be overridden in init()
+let maxRetries = 5;
+let maxBackoffMs = 64000;
+
 /**
  * Loads credentials from various sources
  * @param {any} credentialsInput - Can be object, file path, or undefined
@@ -66,6 +70,62 @@ function loadCredentials(credentialsInput) {
 }
 
 /**
+ * Exponential backoff retry mechanism for Google API calls
+ * @param {Function} apiCall - The API function to call
+ * @param {number} [customMaxRetries] - Override retry count (uses global config if not provided)
+ * @param {number} [customMaxBackoff] - Override backoff time (uses global config if not provided)
+ * @returns {Promise<any>} Result of the API call
+ */
+async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
+    const maxRetriesConfig = customMaxRetries ?? maxRetries;
+    const maxBackoffConfig = customMaxBackoff ?? maxBackoffMs;
+    let currentRetry = 0;
+    
+    while (currentRetry <= maxRetriesConfig) {
+        try {
+            return await apiCall();
+        } catch (error) {
+            const isQuotaError = error.code === 429 || 
+                                (error.message && error.message.includes('Quota exceeded')) ||
+                                (error.message && error.message.includes('Too many requests'));
+            
+            const isRetryableError = isQuotaError || 
+                                   error.code === 500 || 
+                                   error.code === 502 || 
+                                   error.code === 503 || 
+                                   error.code === 504;
+            
+            if (!isRetryableError || currentRetry >= maxRetriesConfig) {
+                logger.error({
+                    error: error.message,
+                    retryCount: currentRetry,
+                    maxRetries: maxRetriesConfig,
+                    isQuotaError,
+                    isRetryableError
+                }, 'API call failed after retries');
+                throw error;
+            }
+            
+            // Calculate exponential backoff: min(((2^n) + random), maxBackoff)
+            const baseDelay = Math.pow(2, currentRetry) * 1000; // Start with 1 second
+            const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+            const delay = Math.min(baseDelay + jitter, maxBackoffConfig);
+            
+            logger.warn({
+                error: error.message,
+                retryCount: currentRetry + 1,
+                maxRetries: maxRetriesConfig,
+                delayMs: Math.round(delay),
+                isQuotaError
+            }, 'API call failed, retrying with backoff');
+            
+            await new Promise(resolve => setTimeout(resolve, delay));
+            currentRetry++;
+        }
+    }
+}
+
+/**
  * Initializes the ak-sheets library with configuration
  * @param {import('./index.d.ts').AkSheetsConfig} config - Configuration options
  * @example
@@ -81,19 +141,25 @@ function loadCredentials(credentialsInput) {
  *   environment: 'dev'
  * });
  * 
- * // Initialize with file path
+ * // Initialize with file path and custom retry settings
  * init({
  *   credentials: './credentials.json',
- *   environment: 'prod'
+ *   environment: 'prod',
+ *   maxRetries: 3,
+ *   maxBackoffMs: 32000
  * });
  * 
  * // Initialize using environment variables
  * // Set SHEETS_CREDENTIALS=./credentials.json
  * init({});
  * 
- * // Custom logging level
+ * // Custom logging level and retry configuration
  * // Set LOG_LEVEL=debug for verbose output
- * init({ credentials: './credentials.json' });
+ * init({ 
+ *   credentials: './credentials.json',
+ *   maxRetries: 10,
+ *   maxBackoffMs: 120000
+ * });
  */
 export function init(config) {
     credentials = loadCredentials(config.credentials);
@@ -119,6 +185,14 @@ export function init(config) {
                 }
                 : undefined // In prod, keep as JSON for cloud logging
         });
+    }
+
+    // Configure retry settings
+    if (typeof config.maxRetries === 'number') {
+        maxRetries = config.maxRetries;
+    }
+    if (typeof config.maxBackoffMs === 'number') {
+        maxBackoffMs = config.maxBackoffMs;
     }
 
     auth = new google.auth.GoogleAuth({
@@ -181,13 +255,15 @@ export async function createSheet(name = makeName(), tabs = []) {
 
     try {
         // Create a new spreadsheet if no existing sheet is found
-        const response = await sheets.spreadsheets.create({
-            resource: {
-                properties: {
-                    title: name,
+        const response = await retryWithBackoff(() => 
+            sheets.spreadsheets.create({
+                resource: {
+                    properties: {
+                        title: name,
+                    },
                 },
-            },
-        });
+            })
+        );
 
         const spreadsheetId = response?.data?.spreadsheetId;
         logger.info({ spreadsheetId, name }, 'Spreadsheet created successfully');
@@ -203,24 +279,28 @@ export async function createSheet(name = makeName(), tabs = []) {
                 }
             }));
 
-            await sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: addSheetRequests
-                }
-            });
+            await retryWithBackoff(() =>
+                sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: {
+                        requests: addSheetRequests
+                    }
+                })
+            );
 
             // Remove default sheet if new tabs are added
-            await sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                resource: {
-                    requests: [{
-                        deleteSheet: {
-                            sheetId: 0 // Default first sheet
-                        }
-                    }]
-                }
-            });
+            await retryWithBackoff(() =>
+                sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: {
+                        requests: [{
+                            deleteSheet: {
+                                sheetId: 0 // Default first sheet
+                            }
+                        }]
+                    }
+                })
+            );
 
             logger.debug({ tabCount: tabs.length }, 'Tabs added and default sheet removed');
         }
@@ -279,35 +359,41 @@ export async function writeToSheet(spreadsheetId, rows = "", tab) {
         // If tab is specified, first check and create if needed
         if (tab) {
             // Check if tab exists
-            const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+            const spreadsheet = await retryWithBackoff(() => 
+                sheets.spreadsheets.get({ spreadsheetId })
+            );
             const existingSheets = spreadsheet.data.sheets?.map(( sheet) => sheet.properties.title) || [];
 
             // Create tab if it doesn't exist
             if (!existingSheets.includes(tab)) {
                 logger.debug({ tab }, 'Creating new tab');
-                await sheets.spreadsheets.batchUpdate({
-                    spreadsheetId,
-                    resource: {
-                        requests: [{
-                            addSheet: {
-                                properties: {
-                                    title: tab
+                await retryWithBackoff(() =>
+                    sheets.spreadsheets.batchUpdate({
+                        spreadsheetId,
+                        resource: {
+                            requests: [{
+                                addSheet: {
+                                    properties: {
+                                        title: tab
+                                    }
                                 }
-                            }
-                        }]
-                    }
-                });
+                            }]
+                        }
+                    })
+                );
             }
 
             // Write to specific tab
-            const response = await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `${tab}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: {
-                    values: typeof rows === 'string' ? Papa.parse(rows).data : [],
-                },
-            });
+            const response = await retryWithBackoff(() =>
+                sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `${tab}!A1`,
+                    valueInputOption: 'USER_ENTERED',
+                    resource: {
+                        values: typeof rows === 'string' ? Papa.parse(rows).data : [],
+                    },
+                })
+            );
 
             if (response?.data) {
                 logger.info({ 
@@ -319,14 +405,16 @@ export async function writeToSheet(spreadsheetId, rows = "", tab) {
             }
         } else {
             // Original behavior if no tab specified
-            const response = await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: {
-                    values: typeof rows === 'string' ? Papa.parse(rows).data : [],
-                },
-            });
+            const response = await retryWithBackoff(() =>
+                sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `A1`,
+                    valueInputOption: 'USER_ENTERED',
+                    resource: {
+                        values: typeof rows === 'string' ? Papa.parse(rows).data : [],
+                    },
+                })
+            );
 
             if (response?.data) {
                 logger.info({ 
@@ -406,14 +494,16 @@ export async function writeToSheetTabs(spreadsheetId, assets = {}) {
         }
 
         try {
-            const response = await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `${tab}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                resource: {
-                    values: typeof processedRows === 'string' ? Papa.parse(processedRows).data : [],
-                },
-            });
+            const response = await retryWithBackoff(() =>
+                sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `${tab}!A1`,
+                    valueInputOption: 'USER_ENTERED',
+                    resource: {
+                        values: typeof processedRows === 'string' ? Papa.parse(processedRows).data : [],
+                    },
+                })
+            );
 
             if (response?.data) {
                 logger.debug({ 
@@ -481,14 +571,16 @@ export async function shareSheet(spreadsheetId, options) {
     logger.debug({ spreadsheetId, userEmail, role, type }, 'Sharing spreadsheet');
 
     try {
-        const result = await drive.permissions.create({
-            fileId: spreadsheetId,
-            requestBody: {
-                role,
-                type,
-                emailAddress: userEmail,
-            },
-        });
+        const result = await retryWithBackoff(() =>
+            drive.permissions.create({
+                fileId: spreadsheetId,
+                requestBody: {
+                    role,
+                    type,
+                    emailAddress: userEmail,
+                },
+            })
+        );
 
         logger.info({ spreadsheetId, userEmail }, 'Spreadsheet shared successfully');
         return result;
@@ -521,9 +613,11 @@ export async function deleteSheet(spreadsheetId) {
     logger.debug({ spreadsheetId }, 'Deleting spreadsheet');
 
     try {
-        await drive.files.delete({
-            fileId: spreadsheetId,
-        });
+        await retryWithBackoff(() =>
+            drive.files.delete({
+                fileId: spreadsheetId,
+            })
+        );
 
         logger.info({ spreadsheetId }, 'Spreadsheet deleted successfully');
     } catch (error) {
@@ -579,12 +673,14 @@ export async function listOwnedSpreadsheets() {
 
         do {
             
-            const response = await drive.files.list({
-                q: "mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners",
-                fields: 'nextPageToken, files(id, name, owners)',
-                pageSize: 100,
-                pageToken: nextPageToken,
-            });
+            const response = await retryWithBackoff(() =>
+                drive.files.list({
+                    q: "mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners",
+                    fields: 'nextPageToken, files(id, name, owners)',
+                    pageSize: 100,
+                    pageToken: nextPageToken,
+                })
+            );
 
             spreadsheets.push(...(response?.data?.files || []));
             nextPageToken = response.data.nextPageToken;
@@ -737,11 +833,13 @@ export async function getSheet(spreadsheetId, tab, format = 'json') {
     logger.debug({ spreadsheetId, tab, format }, 'Reading sheet data');
 
     try {
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: tab ? `${tab}!A:ZZ` : 'A:ZZ',
-            majorDimension: 'ROWS'
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: tab ? `${tab}!A:ZZ` : 'A:ZZ',
+                majorDimension: 'ROWS'
+            })
+        );
 
         const values = response?.data?.values || [];
         logger.debug({ rowCount: values.length }, 'Sheet data retrieved');
@@ -839,14 +937,16 @@ export async function updateSheet(spreadsheetId, newData, tab) {
         const updatedValues = mergeData(existingData, newData);
 
         // Write the updated data
-        const response = await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${tab}!A1`, 
-            valueInputOption: 'USER_ENTERED',
-            resource: {
-                values: updatedValues,
-            },
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${tab}!A1`, 
+                valueInputOption: 'USER_ENTERED',
+                resource: {
+                    values: updatedValues,
+                },
+            })
+        );
 
         logger.info({ 
             updatedCells: response?.data?.updatedCells,
@@ -1056,15 +1156,17 @@ export async function appendToSheet(spreadsheetId, rows, tab) {
         }
 
         const range = tab ? `${tab}!A${nextRow}` : `A${nextRow}`;
-        const response = await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range,
-            valueInputOption: 'USER_ENTERED',
-            insertDataOption: 'INSERT_ROWS',
-            resource: {
-                values: Array.isArray(processedRows[0]) ? processedRows : Papa.parse(/** @type {string} */ (processedRows)).data,
-            },
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.append({
+                spreadsheetId,
+                range,
+                valueInputOption: 'USER_ENTERED',
+                insertDataOption: 'INSERT_ROWS',
+                resource: {
+                    values: Array.isArray(processedRows[0]) ? processedRows : Papa.parse(/** @type {string} */ (processedRows)).data,
+                },
+            })
+        );
 
         if (response?.data) {
             logger.info({ 
@@ -1109,10 +1211,12 @@ export async function clearSheet(spreadsheetId, tab) {
 
     try {
         const range = tab ? `${tab}!A:ZZ` : 'A:ZZ';
-        const response = await sheets.spreadsheets.values.clear({
-            spreadsheetId,
-            range,
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.clear({
+                spreadsheetId,
+                range,
+            })
+        );
 
         logger.info({ spreadsheetId, tab }, 'Sheet cleared successfully');
         return response.data || { clearedRange: range };
@@ -1145,10 +1249,12 @@ export async function getSheetInfo(spreadsheetId) {
     logger.debug({ spreadsheetId }, 'Getting sheet info');
 
     try {
-        const response = await sheets.spreadsheets.get({
-            spreadsheetId,
-            fields: 'properties,sheets.properties'
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.get({
+                spreadsheetId,
+                fields: 'properties,sheets.properties'
+            })
+        );
 
         logger.debug({ 
             spreadsheetId, 
@@ -1274,14 +1380,16 @@ export async function writeToRange(spreadsheetId, range, data, tab) {
         }
 
         const fullRange = tab ? `${tab}!${range}` : range;
-        const response = await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: fullRange,
-            valueInputOption: 'USER_ENTERED',
-            resource: {
-                values: processedData,
-            },
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: fullRange,
+                valueInputOption: 'USER_ENTERED',
+                resource: {
+                    values: processedData,
+                },
+            })
+        );
 
         if (response?.data) {
             logger.info({ 
@@ -1361,12 +1469,14 @@ export async function addTab(spreadsheetId, tabName, options = {}) {
             }
         };
 
-        const response = await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            resource: {
-                requests: [addSheetRequest]
-            }
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [addSheetRequest]
+                }
+            })
+        );
 
         const newSheetId = response.data.replies?.[0]?.addSheet?.properties?.sheetId;
         logger.info({ 
@@ -1419,12 +1529,14 @@ export async function deleteTab(spreadsheetId, tabName) {
             }
         };
 
-        await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            resource: {
-                requests: [deleteSheetRequest]
-            }
-        });
+        await retryWithBackoff(() =>
+            sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [deleteSheetRequest]
+                }
+            })
+        );
 
         logger.info({ spreadsheetId, tabName, sheetId }, 'Tab deleted successfully');
     } catch (error) {
@@ -1481,12 +1593,14 @@ export async function renameTab(spreadsheetId, oldName, newName) {
             }
         };
 
-        await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            resource: {
-                requests: [updatePropertiesRequest]
-            }
-        });
+        await retryWithBackoff(() =>
+            sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [updatePropertiesRequest]
+                }
+            })
+        );
 
         logger.info({ spreadsheetId, oldName, newName, sheetId }, 'Tab renamed successfully');
     } catch (error) {
@@ -1548,12 +1662,14 @@ export async function duplicateTab(spreadsheetId, sourceTabName, newTabName) {
             }
         };
 
-        const response = await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            resource: {
-                requests: [duplicateSheetRequest]
-            }
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [duplicateSheetRequest]
+                }
+            })
+        );
 
         const newSheetInfo = response.data.replies?.[0]?.duplicateSheet?.properties;
         logger.info({ 

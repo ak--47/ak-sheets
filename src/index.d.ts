@@ -10,6 +10,10 @@ export interface AkSheetsConfig {
   logger?: Logger;
   /** Environment (dev/prod/test) - affects logging verbosity. Uses NODE_ENV if not provided. */
   environment?: 'dev' | 'prod' | 'test';
+  /** Maximum number of retries for failed API calls (default: 5) */
+  maxRetries?: number;
+  /** Maximum backoff time in milliseconds (default: 64000) */
+  maxBackoffMs?: number;
 }
 
 /**
