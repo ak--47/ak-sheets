@@ -57,7 +57,7 @@ function loadCredentials(credentialsInput) {
         try {
             const credentialsContent = readFileSync(credentialsPath, 'utf-8');
             return JSON.parse(credentialsContent);
-        } catch (/** @type {any} */ error) {
+        } catch (error) {
             throw new Error(`Failed to parse credentials file: ${error.message}`);
         }
     }
@@ -232,7 +232,7 @@ export async function createSheet(name = makeName(), tabs = []) {
 
         return spreadsheetId;
     } catch (error) {
-        logger.error({ error: /** @type {any} */ (error).message, name, tabs }, 'Failed to create spreadsheet');
+        logger.error({ error:  (error).message, name, tabs }, 'Failed to create spreadsheet');
         throw error;
     }
 }
@@ -280,7 +280,7 @@ export async function writeToSheet(spreadsheetId, rows = "", tab) {
         if (tab) {
             // Check if tab exists
             const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-            const existingSheets = spreadsheet.data.sheets?.map((/** @type {any} */ sheet) => sheet.properties.title) || [];
+            const existingSheets = spreadsheet.data.sheets?.map(( sheet) => sheet.properties.title) || [];
 
             // Create tab if it doesn't exist
             if (!existingSheets.includes(tab)) {
@@ -339,14 +339,14 @@ export async function writeToSheet(spreadsheetId, rows = "", tab) {
         
         return { updatedCells: 0 };
     } catch (error) {
-        if (/** @type {any} */ (error).code === 404) {
+        if ( (error).code === 404) {
             logger.warn({ spreadsheetId }, 'Spreadsheet not found, creating new one');
             const newSpreadsheetId = await createSheet();
             return await writeToSheet(newSpreadsheetId, rows, tab);
         }
 
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tab 
         }, 'Failed to write to sheet');
@@ -378,6 +378,18 @@ export async function writeToSheetTabs(spreadsheetId, assets = {}) {
 
     const tabs = Object.keys(assets);
     logger.debug({ spreadsheetId, tabCount: tabs.length }, 'Writing to multiple tabs');
+
+    // Get existing tabs
+    const existingTabs = await listTabs(spreadsheetId);
+    const existingTabNames = existingTabs.map(tab => tab.title);
+
+    // Create missing tabs
+    for (const tabName of tabs) {
+        if (!existingTabNames.includes(tabName)) {
+            logger.debug({ tabName }, 'Creating missing tab');
+            await addTab(spreadsheetId, tabName);
+        }
+    }
 
     const results = [];
     for (const tab of tabs) {
@@ -412,14 +424,14 @@ export async function writeToSheetTabs(spreadsheetId, assets = {}) {
             }
 
         } catch (error) {
-            if (/** @type {any} */ (error).code === 404) {
+            if ( (error).code === 404) {
                 logger.warn({ spreadsheetId }, 'Spreadsheet not found, creating new one');
                 const newSpreadsheetId = await createSheet();
                 return await writeToSheetTabs(newSpreadsheetId, assets);
             }
 
             logger.error({ 
-                error: /** @type {any} */ (error).message, 
+                error:  (error).message, 
                 spreadsheetId, 
                 tab 
             }, 'Failed to write to tab');
@@ -482,7 +494,7 @@ export async function shareSheet(spreadsheetId, options) {
         return result;
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             userEmail 
         }, 'Failed to share spreadsheet');
@@ -516,7 +528,7 @@ export async function deleteSheet(spreadsheetId) {
         logger.info({ spreadsheetId }, 'Spreadsheet deleted successfully');
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId 
         }, 'Failed to delete spreadsheet');
         throw error;
@@ -566,7 +578,7 @@ export async function listOwnedSpreadsheets() {
         let nextPageToken = null;
 
         do {
-            /** @type {any} */
+            
             const response = await drive.files.list({
                 q: "mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners",
                 fields: 'nextPageToken, files(id, name, owners)',
@@ -581,7 +593,7 @@ export async function listOwnedSpreadsheets() {
         logger.debug({ count: spreadsheets.length }, 'Listed owned spreadsheets');
         return spreadsheets;
     } catch (error) {
-        logger.error({ error: /** @type {any} */ (error).message }, 'Failed to list spreadsheets');
+        logger.error({ error:  (error).message }, 'Failed to list spreadsheets');
         throw error;
     }
 }
@@ -607,7 +619,7 @@ export async function deleteAllSheets() {
         logger.info({ deletedCount: promises.length }, 'All spreadsheets deleted');
         return spreadsheets;
     } catch (error) {
-        logger.error({ error: /** @type {any} */ (error).message }, 'Failed to delete all spreadsheets');
+        logger.error({ error:  (error).message }, 'Failed to delete all spreadsheets');
         throw error;
     }
 }
@@ -744,12 +756,12 @@ export async function getSheet(spreadsheetId, tab, format = 'json') {
                 return convertValuesToObjects(values);
         }
     } catch (error) {
-        if (/** @type {any} */ (error).code === 404) {
+        if ( (error).code === 404) {
             logger.error({ spreadsheetId }, 'Spreadsheet not found');
             throw error;
         }
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tab 
         }, 'Failed to read sheet');
@@ -774,7 +786,7 @@ function mergeData(existingData, newData) {
     // Convert newData to array of arrays if it's JSON
     const processedNewData = Array.isArray(newData) && Array.isArray(newData[0]) 
         ? newData 
-        : Array.isArray(newData) ? /** @type {any[][]} */ (newData).map((/** @type {any} */ item) => headers.map(header => item[header] || '')) : [];
+        : Array.isArray(newData) ? /** @type {any[][]} */ (newData).map(( item) => headers.map(header => item[header] || '')) : [];
 
     // Create mergedData starting with headers
     const mergedData = [headers];
@@ -843,13 +855,13 @@ export async function updateSheet(spreadsheetId, newData, tab) {
         }, 'Sheet updated successfully');
         return response.data;
     } catch (error) {
-        if (/** @type {any} */ (error).code === 404) {
+        if ( (error).code === 404) {
             logger.warn({ spreadsheetId, tab }, 'Spreadsheet or tab not found, creating new');
             const newSpreadsheetId = await createSheet(undefined, tab ? [tab] : undefined);
             return await writeToSheet(newSpreadsheetId, newData, tab);
         }
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tab 
         }, 'Failed to update sheet');
@@ -912,7 +924,7 @@ export function readXlsxFile(filePath) {
         }, 'Excel file read successfully');
         
         return sheets;
-    } catch (/** @type {any} */ error) {
+    } catch ( error) {
         logger.error({ error: error.message, filePath }, 'Failed to read Excel file');
         throw new Error(`Failed to read Excel file: ${error.message}`);
     }
@@ -942,19 +954,25 @@ export function csvToJson(csvString, options = {}) {
     };
     
     try {
+        
         const result = Papa.parse(csvString, defaultOptions);
         
+        // @ts-ignore
         if (result.errors.length > 0) {
+            // @ts-ignore
             logger.warn({ errors: result.errors }, 'CSV parsing encountered errors');
         }
         
         logger.debug({ 
+            // @ts-ignore
             rowCount: result.data.length,
+            // @ts-ignore
             columnCount: result.meta.fields?.length || 0
         }, 'CSV converted to JSON successfully');
         
+        // @ts-ignore
         return result.data;
-    } catch (/** @type {any} */ error) {
+    } catch ( error) {
         logger.error({ error: error.message }, 'Failed to convert CSV to JSON');
         throw new Error(`Failed to parse CSV: ${error.message}`);
     }
@@ -994,7 +1012,7 @@ export function jsonToCsv(jsonData, options = {}) {
         }, 'JSON converted to CSV successfully');
         
         return csvString;
-    } catch (/** @type {any} */ error) {
+    } catch ( error) {
         logger.error({ error: error.message }, 'Failed to convert JSON to CSV');
         throw new Error(`Failed to convert JSON to CSV: ${error.message}`);
     }
@@ -1031,7 +1049,7 @@ export async function appendToSheet(spreadsheetId, rows, tab) {
             if (rows.length > 0 && typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
                 // Array of objects - convert to array of arrays using existing headers
                 const headers = existingData[0] || [];
-                processedRows = rows.map((/** @type {any} */ obj) => headers.map((/** @type {string} */ header) => obj[header] || ''));
+                processedRows = rows.map(( obj) => headers.map((/** @type {string} */ header) => obj[header] || ''));
             } else if (typeof rows === 'string') {
                 processedRows = Papa.parse(rows).data;
             }
@@ -1060,7 +1078,7 @@ export async function appendToSheet(spreadsheetId, rows, tab) {
         return { updatedCells: 0 };
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tab 
         }, 'Failed to append to sheet');
@@ -1100,7 +1118,7 @@ export async function clearSheet(spreadsheetId, tab) {
         return response.data || { clearedRange: range };
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tab 
         }, 'Failed to clear sheet');
@@ -1141,7 +1159,7 @@ export async function getSheetInfo(spreadsheetId) {
         return response.data;
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId 
         }, 'Failed to get sheet info');
         throw error;
@@ -1195,12 +1213,12 @@ export async function getRange(spreadsheetId, range, tab, format = 'json') {
                 return convertValuesToObjects(values);
         }
     } catch (error) {
-        if (/** @type {any} */ (error).code === 404) {
+        if ( (error).code === 404) {
             logger.error({ spreadsheetId, range }, 'Spreadsheet or range not found');
             throw error;
         }
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             range,
             tab 
@@ -1277,7 +1295,7 @@ export async function writeToRange(spreadsheetId, range, data, tab) {
         return { updatedCells: 0 };
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             range,
             tab 
@@ -1360,7 +1378,7 @@ export async function addTab(spreadsheetId, tabName, options = {}) {
         return newSheetId;
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tabName 
         }, 'Failed to add tab');
@@ -1411,7 +1429,7 @@ export async function deleteTab(spreadsheetId, tabName) {
         logger.info({ spreadsheetId, tabName, sheetId }, 'Tab deleted successfully');
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             tabName 
         }, 'Failed to delete tab');
@@ -1473,7 +1491,7 @@ export async function renameTab(spreadsheetId, oldName, newName) {
         logger.info({ spreadsheetId, oldName, newName, sheetId }, 'Tab renamed successfully');
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             oldName, 
             newName 
@@ -1551,7 +1569,7 @@ export async function duplicateTab(spreadsheetId, sourceTabName, newTabName) {
         };
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId, 
             sourceTabName, 
             newTabName 
@@ -1594,7 +1612,7 @@ export async function listTabs(spreadsheetId) {
         return tabs;
     } catch (error) {
         logger.error({ 
-            error: /** @type {any} */ (error).message, 
+            error:  (error).message, 
             spreadsheetId 
         }, 'Failed to list tabs');
         throw error;

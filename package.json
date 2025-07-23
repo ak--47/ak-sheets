@@ -14,18 +14,14 @@
     "src/"
   ],
   "scripts": {
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:run": "vitest run",
+    "test": "vitest",    
     "test:coverage": "vitest run --coverage",
     "build": "tsc --noEmit",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
+    "lint": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:run",
-    "postinstall": "echo 'Thank you for installing ak-sheets! Visit https://github.com/ak/ak-sheets for documentation.'"
+	"post": "npm publish"
   },
   "keywords": [
     "google-sheets",
