@@ -14,6 +14,8 @@ export interface AkSheetsConfig {
   maxRetries?: number;
   /** Maximum backoff time in milliseconds (default: 64000) */
   maxBackoffMs?: number;
+  /** Whether to validate authentication during init (default: true) */
+  validateAuth?: boolean;
 }
 
 /**
@@ -278,7 +280,12 @@ export function listTabs(spreadsheetId: string): Promise<TabInfo[]>;
  * Initialize ak-sheets with configuration
  * @param config - Configuration options
  */
-export function init(config: AkSheetsConfig): void;
+export function init(config: AkSheetsConfig): Promise<void>;
+
+/**
+ * Validates authentication by making a simple API call
+ */
+export function validateAuth(): Promise<boolean>;
 
 /**
  * Default export object with all sheet operations

@@ -6,8 +6,9 @@
 import { google } from 'googleapis';
 import Papa from 'papaparse';
 import pino from 'pino';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
+import { createHash } from 'crypto';
 import xlsx from 'xlsx';
 
 let credentials = null;
@@ -83,11 +84,26 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
     
     while (currentRetry <= maxRetriesConfig) {
         try {
+            // Log the attempt if we're retrying
+            if (currentRetry > 0) {
+                logger.info({ 
+                    attempt: currentRetry + 1, 
+                    maxRetries: maxRetriesConfig + 1 
+                }, 'Retrying API call after backoff delay');
+            }
+            
             return await apiCall();
         } catch (error) {
             const isQuotaError = error.code === 429 || 
                                 (error.message && error.message.includes('Quota exceeded')) ||
                                 (error.message && error.message.includes('Too many requests'));
+            
+            const isAuthError = error.code === 401 || 
+                               error.code === 403 || 
+                               (error.message && error.message.includes('Invalid authentication')) ||
+                               (error.message && error.message.includes('unauthorized')) ||
+                               (error.message && error.message.includes('permission')) ||
+                               (error.message && error.message.includes('credentials'));
             
             const isRetryableError = isQuotaError || 
                                    error.code === 500 || 
@@ -95,14 +111,27 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
                                    error.code === 503 || 
                                    error.code === 504;
             
+            // Auth errors should not be retried - fail fast
+            if (isAuthError) {
+                logger.error({
+                    error: error.message,
+                    errorCode: error.code,
+                    retryCount: currentRetry,
+                    isAuthError: true
+                }, '🚫 AUTHENTICATION ERROR - Check your credentials and permissions');
+                throw error;
+            }
+            
             if (!isRetryableError || currentRetry >= maxRetriesConfig) {
                 logger.error({
                     error: error.message,
+                    errorCode: error.code,
                     retryCount: currentRetry,
                     maxRetries: maxRetriesConfig,
                     isQuotaError,
-                    isRetryableError
-                }, 'API call failed after retries');
+                    isRetryableError,
+                    isAuthError
+                }, 'API call failed permanently - no more retries');
                 throw error;
             }
             
@@ -111,17 +140,83 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
             const jitter = Math.random() * 1000; // Add up to 1 second of jitter
             const delay = Math.min(baseDelay + jitter, maxBackoffConfig);
             
-            logger.warn({
+            // More prominent logging for quota errors
+            const logLevel = isQuotaError ? 'warn' : 'info';
+            const message = isQuotaError 
+                ? 'RATE LIMITED - Waiting before retry' 
+                : 'API error - Retrying with backoff';
+                
+            logger[logLevel]({
                 error: error.message,
+                errorCode: error.code,
                 retryCount: currentRetry + 1,
                 maxRetries: maxRetriesConfig,
                 delayMs: Math.round(delay),
-                isQuotaError
-            }, 'API call failed, retrying with backoff');
+                delaySec: Math.round(delay / 1000),
+                isQuotaError,
+                nextAttemptIn: `${Math.round(delay / 1000)}s`
+            }, message);
             
             await new Promise(resolve => setTimeout(resolve, delay));
             currentRetry++;
         }
+    }
+}
+
+/**
+ * Validates authentication by making a simple API call
+ * @returns {Promise<boolean>} True if auth is valid, throws error if not
+ * @example
+ * import { init, validateAuth } from 'ak-sheets';
+ * 
+ * // Initialize first
+ * await init({ credentials: './credentials.json' });
+ * 
+ * // Manually validate auth
+ * try {
+ *   await validateAuth();
+ *   console.log('Authentication is working!');
+ * } catch (error) {
+ *   console.error('Auth failed:', error.message);
+ * }
+ */
+export async function validateAuth() {
+    if (!sheets || !drive) {
+        throw new Error('Authentication not initialized. Call init() first.');
+    }
+
+    try {
+        // Make a simple API call to test authentication
+        logger.debug('Testing authentication with Drive API');
+        await retryWithBackoff(() =>
+            drive.about.get({
+                fields: 'user'
+            })
+        );
+        
+        logger.info('✅ Authentication validated successfully');
+        return true;
+    } catch (error) {
+        const isAuthError = error.code === 401 || 
+                           error.code === 403 || 
+                           (error.message && error.message.includes('Invalid authentication')) ||
+                           (error.message && error.message.includes('unauthorized')) ||
+                           (error.message && error.message.includes('permission')) ||
+                           (error.message && error.message.includes('credentials'));
+        
+        if (isAuthError) {
+            logger.error({
+                error: error.message,
+                errorCode: error.code,
+                suggestion: 'Check your service account credentials, key file path, and API permissions'
+            }, '🚫 AUTHENTICATION FAILED - Invalid credentials or insufficient permissions');
+        } else {
+            logger.error({
+                error: error.message,
+                errorCode: error.code
+            }, 'Failed to validate authentication due to network/API error');
+        }
+        throw error;
     }
 }
 
@@ -160,8 +255,20 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
  *   maxRetries: 10,
  *   maxBackoffMs: 120000
  * });
+ * 
+ * // Initialize and test authentication immediately
+ * await init({
+ *   credentials: './credentials.json',
+ *   validateAuth: true  // Default behavior
+ * });
+ * 
+ * // Skip auth validation during init (faster startup)
+ * await init({
+ *   credentials: './credentials.json',
+ *   validateAuth: false
+ * });
  */
-export function init(config) {
+export async function init(config) {
     credentials = loadCredentials(config.credentials);
     
     // Use passed environment, then NODE_ENV, then default to 'prod'
@@ -209,6 +316,16 @@ export function init(config) {
     drive = google.drive({ version: 'v3', auth });
 
     logger.info('ak-sheets initialized successfully');
+
+    // Optionally validate authentication immediately
+    if (config.validateAuth !== false) {
+        try {
+            await validateAuth();
+        } catch (error) {
+            logger.warn('Authentication validation failed during init. You can disable this check with validateAuth: false');
+            // Don't throw here - let the user decide if they want to handle auth errors later
+        }
+    }
 }
 
 /**
@@ -806,6 +923,78 @@ function getUniqueKeys(data) {
 }
 
 /**
+ * Generates a cache key for spreadsheet data based on spreadsheet ID, tab, range, and format
+ * @param {string} spreadsheetId - ID of the spreadsheet
+ * @param {string} [tab] - Optional tab name
+ * @param {string} [range] - Optional range
+ * @param {string} [format] - Optional format
+ * @param {boolean} [shouldGetAllTabs] - Whether getting all tabs
+ * @returns {string} Hash-based cache key
+ */
+function generateCacheKey(spreadsheetId, tab, range, format, shouldGetAllTabs) {
+    const keyData = {
+        spreadsheetId,
+        tab: tab || null,
+        range: range || null,
+        format: format || 'json',
+        shouldGetAllTabs: shouldGetAllTabs || false
+    };
+    const keyString = JSON.stringify(keyData);
+    return createHash('md5').update(keyString).digest('hex');
+}
+
+/**
+ * Reads cached data from disk if it exists
+ * @param {string} cacheKey - Cache key to look up
+ * @returns {any|null} Cached data or null if not found
+ */
+function readCache(cacheKey) {
+    if (environment !== 'dev') return null;
+    
+    try {
+        const cacheDir = resolve(process.cwd(), 'tmp');
+        const cacheFile = resolve(cacheDir, `${cacheKey}.json`);
+        
+        if (!existsSync(cacheFile)) {
+            logger.debug({ cacheKey }, 'Cache miss - no cached data found');
+            return null;
+        }
+        
+        const cacheData = JSON.parse(readFileSync(cacheFile, 'utf-8'));
+        logger.info({ cacheKey, cacheFile }, '🎯 CACHE HIT - returning cached data (dev mode)');
+        return cacheData;
+    } catch (error) {
+        logger.warn({ error: error.message, cacheKey }, 'Failed to read cache');
+        return null;
+    }
+}
+
+/**
+ * Writes data to cache on disk
+ * @param {string} cacheKey - Cache key to store under
+ * @param {any} data - Data to cache
+ */
+function writeCache(cacheKey, data) {
+    if (environment !== 'dev') return;
+    
+    try {
+        const cacheDir = resolve(process.cwd(), 'tmp');
+        
+        // Ensure cache directory exists
+        if (!existsSync(cacheDir)) {
+            mkdirSync(cacheDir, { recursive: true });
+            logger.debug({ cacheDir }, 'Created cache directory');
+        }
+        
+        const cacheFile = resolve(cacheDir, `${cacheKey}.json`);
+        writeFileSync(cacheFile, JSON.stringify(data, null, 2), 'utf-8');
+        logger.info({ cacheKey, cacheFile }, '💾 Data cached to disk (dev mode)');
+    } catch (error) {
+        logger.warn({ error: error.message, cacheKey }, 'Failed to write cache');
+    }
+}
+
+/**
  * Reads data from a Google Spreadsheet
  * @param {string} spreadsheetId - ID of the spreadsheet to read from
  * @param {string} [tab] - Optional tab name to read from
@@ -838,11 +1027,21 @@ export async function getSheet(spreadsheetId, tab, format = 'json', shouldGetAll
 
     logger.debug({ spreadsheetId, tab, format, shouldGetAllTabs }, 'Reading sheet data');
 
+    // Check cache in dev environment
+    const cacheKey = generateCacheKey(spreadsheetId, tab, 'A:ZZ', format, shouldGetAllTabs);
+    const cachedData = readCache(cacheKey);
+    if (cachedData !== null) {
+        logger.info({ spreadsheetId, tab, format, shouldGetAllTabs }, '🚀 Using cached sheet data - skipping API call');
+        return cachedData;
+    }
+
     try {
+        let result;
+        
         if (shouldGetAllTabs) {
             // Get all tabs in the spreadsheet
             const tabsInfo = await listTabs(spreadsheetId);
-            const result = {};
+            result = {};
 
             // Read data from each tab
             for (const tabInfo of tabsInfo) {
@@ -875,7 +1074,6 @@ export async function getSheet(spreadsheetId, tab, format = 'json', shouldGetAll
             }
 
             logger.debug({ tabCount: Object.keys(result).length }, 'All tabs data retrieved');
-            return result;
         } else {
             // Original single tab behavior
             const response = await retryWithBackoff(() =>
@@ -891,14 +1089,22 @@ export async function getSheet(spreadsheetId, tab, format = 'json', shouldGetAll
 
             switch (format.toLowerCase()) {
                 case 'csv':
-                    return makeCSVFromData(convertValuesToObjects(values));
+                    result = makeCSVFromData(convertValuesToObjects(values));
+                    break;
                 case 'array':
-                    return values;
+                    result = values;
+                    break;
                 case 'json':
                 default:
-                    return convertValuesToObjects(values);
+                    result = convertValuesToObjects(values);
+                    break;
             }
         }
+
+        // Cache the result in dev environment
+        writeCache(cacheKey, result);
+        return result;
+        
     } catch (error) {
         if ( (error).code === 404) {
             logger.error({ spreadsheetId }, 'Spreadsheet not found');
@@ -1345,26 +1551,45 @@ export async function getRange(spreadsheetId, range, tab, format = 'json') {
 
     logger.debug({ spreadsheetId, range, tab, format }, 'Reading range data');
 
+    // Check cache in dev environment
+    const cacheKey = generateCacheKey(spreadsheetId, tab, range, format, false);
+    const cachedData = readCache(cacheKey);
+    if (cachedData !== null) {
+        logger.info({ spreadsheetId, range, tab, format }, '🚀 Using cached range data - skipping API call');
+        return cachedData;
+    }
+
     try {
         const fullRange = tab ? `${tab}!${range}` : range;
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: fullRange,
-            majorDimension: 'ROWS'
-        });
+        const response = await retryWithBackoff(() =>
+            sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: fullRange,
+                majorDimension: 'ROWS'
+            })
+        );
 
         const values = response?.data?.values || [];
         logger.debug({ rowCount: values.length, range: fullRange }, 'Range data retrieved');
 
+        let result;
         switch (format.toLowerCase()) {
             case 'csv':
-                return makeCSVFromData(convertValuesToObjects(values));
+                result = makeCSVFromData(convertValuesToObjects(values));
+                break;
             case 'array':
-                return values;
+                result = values;
+                break;
             case 'json':
             default:
-                return convertValuesToObjects(values);
+                result = convertValuesToObjects(values);
+                break;
         }
+
+        // Cache the result in dev environment
+        writeCache(cacheKey, result);
+        return result;
+        
     } catch (error) {
         if ( (error).code === 404) {
             logger.error({ spreadsheetId, range }, 'Spreadsheet or range not found');
