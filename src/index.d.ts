@@ -124,9 +124,11 @@ export function makeCSVFromData(data: Record<string, any>[], charLimit?: number)
  * @param spreadsheetId - ID of the spreadsheet to read from
  * @param tab - Optional tab name to read from
  * @param format - Output format ('json', 'csv', or 'array')
+ * @param shouldGetAllTabs - If true, returns object with tab names as keys and data as values
  * @returns Promise resolving to the spreadsheet data in requested format
  */
-export function getSheet(spreadsheetId: string, tab?: string, format?: 'json' | 'csv' | 'array'): Promise<any>;
+export function getSheet(spreadsheetId: string, tab?: string, format?: 'json' | 'csv' | 'array', shouldGetAllTabs?: false): Promise<any>;
+export function getSheet(spreadsheetId: string, tab?: string, format?: 'json' | 'csv' | 'array', shouldGetAllTabs: true): Promise<Record<string, any>>;
 
 /**
  * Updates existing data in a Google Spreadsheet

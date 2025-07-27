@@ -1,6 +1,6 @@
 {
   "name": "ak-sheets",
-  "version": "1.0.0",
+  "version": "1.0.01",
   "description": "A modern, simple interface to work deeply with Google Sheets data",
   "main": "./src/index.js",
   "type": "module",

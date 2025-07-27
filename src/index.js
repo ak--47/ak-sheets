@@ -810,6 +810,7 @@ function getUniqueKeys(data) {
  * @param {string} spreadsheetId - ID of the spreadsheet to read from
  * @param {string} [tab] - Optional tab name to read from
  * @param {string} [format='json'] - Output format ('json', 'csv', or 'array')
+ * @param {boolean} [shouldGetAllTabs=false] - If true, returns object with tab names as keys and data as values
  * @returns {Promise<any>} Promise resolving to the spreadsheet data in requested format
  * @example
  * import { getSheet } from 'ak-sheets';
@@ -824,34 +825,79 @@ function getUniqueKeys(data) {
  * // Get as 2D array
  * const arrayData = await getSheet(spreadsheetId, 'Products', 'array');
  * console.log(arrayData[0]); // ['Name', 'Price', 'Stock']
+ * 
+ * // Get all tabs as object with tab names as keys
+ * const allTabsData = await getSheet(spreadsheetId, undefined, 'json', true);
+ * console.log(allTabsData.Users); // [{ name: 'John', ... }]
+ * console.log(allTabsData.Products); // [{ name: 'Widget', ... }]
  */
-export async function getSheet(spreadsheetId, tab, format = 'json') {
+export async function getSheet(spreadsheetId, tab, format = 'json', shouldGetAllTabs = false) {
     if (!sheets) {
         throw new Error('ak-sheets not initialized. Call init() first.');
     }
 
-    logger.debug({ spreadsheetId, tab, format }, 'Reading sheet data');
+    logger.debug({ spreadsheetId, tab, format, shouldGetAllTabs }, 'Reading sheet data');
 
     try {
-        const response = await retryWithBackoff(() =>
-            sheets.spreadsheets.values.get({
-                spreadsheetId,
-                range: tab ? `${tab}!A:ZZ` : 'A:ZZ',
-                majorDimension: 'ROWS'
-            })
-        );
+        if (shouldGetAllTabs) {
+            // Get all tabs in the spreadsheet
+            const tabsInfo = await listTabs(spreadsheetId);
+            const result = {};
 
-        const values = response?.data?.values || [];
-        logger.debug({ rowCount: values.length }, 'Sheet data retrieved');
+            // Read data from each tab
+            for (const tabInfo of tabsInfo) {
+                const tabName = tabInfo.title;
+                logger.debug({ tabName }, 'Reading data from tab');
 
-        switch (format.toLowerCase()) {
-            case 'csv':
-                return makeCSVFromData(convertValuesToObjects(values));
-            case 'array':
-                return values;
-            case 'json':
-            default:
-                return convertValuesToObjects(values);
+                const response = await retryWithBackoff(() =>
+                    sheets.spreadsheets.values.get({
+                        spreadsheetId,
+                        range: `${tabName}!A:ZZ`,
+                        majorDimension: 'ROWS'
+                    })
+                );
+
+                const values = response?.data?.values || [];
+                
+                // Apply format conversion for each tab
+                switch (format.toLowerCase()) {
+                    case 'csv':
+                        result[tabName] = makeCSVFromData(convertValuesToObjects(values));
+                        break;
+                    case 'array':
+                        result[tabName] = values;
+                        break;
+                    case 'json':
+                    default:
+                        result[tabName] = convertValuesToObjects(values);
+                        break;
+                }
+            }
+
+            logger.debug({ tabCount: Object.keys(result).length }, 'All tabs data retrieved');
+            return result;
+        } else {
+            // Original single tab behavior
+            const response = await retryWithBackoff(() =>
+                sheets.spreadsheets.values.get({
+                    spreadsheetId,
+                    range: tab ? `${tab}!A:ZZ` : 'A:ZZ',
+                    majorDimension: 'ROWS'
+                })
+            );
+
+            const values = response?.data?.values || [];
+            logger.debug({ rowCount: values.length }, 'Sheet data retrieved');
+
+            switch (format.toLowerCase()) {
+                case 'csv':
+                    return makeCSVFromData(convertValuesToObjects(values));
+                case 'array':
+                    return values;
+                case 'json':
+                default:
+                    return convertValuesToObjects(values);
+            }
         }
     } catch (error) {
         if ( (error).code === 404) {
@@ -861,7 +907,8 @@ export async function getSheet(spreadsheetId, tab, format = 'json') {
         logger.error({ 
             error:  (error).message, 
             spreadsheetId, 
-            tab 
+            tab,
+            shouldGetAllTabs
         }, 'Failed to read sheet');
         throw error;
     }
