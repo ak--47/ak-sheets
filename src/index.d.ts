@@ -280,7 +280,7 @@ export function listTabs(spreadsheetId: string): Promise<TabInfo[]>;
  * Initialize ak-sheets with configuration
  * @param config - Configuration options
  */
-export function init(config: AkSheetsConfig): Promise<void>;
+export function initSheets(config: AkSheetsConfig): Promise<void>;
 
 /**
  * Validates authentication by making a simple API call

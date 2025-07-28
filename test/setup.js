@@ -2,7 +2,7 @@
 import { config } from 'dotenv';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { init } from '../src/index.js';
+import { initSheets } from '../src/index.js';
 
 // Load environment variables from .env file
 config();
@@ -22,18 +22,20 @@ if (!existsSync(credentialsPath)) {
 }
 
 // Initialize ak-sheets if credentials are available
-if (!global.testConfig.skipIntegrationTests) {
-  try {
-    init({
-      credentials: credentialsPath,
-      environment: 'test',
-      maxRetries: 3,        // Reduced for faster tests
-      maxBackoffMs: 10000   // Reduced for faster tests
-    });
-    console.log('ak-sheets initialized for integration testing');
-  } catch (error) {
-    console.warn(`Warning: Failed to initialize ak-sheets: ${error.message}`);
-    console.warn('Integration tests will be skipped.');
-    global.testConfig.skipIntegrationTests = true;
+(async () => {
+  if (!global.testConfig.skipIntegrationTests) {
+    try {
+      await initSheets({
+        credentials: credentialsPath,
+        environment: 'test',
+        maxRetries: 3,        // Reduced for faster tests
+        maxBackoffMs: 10000   // Reduced for faster tests
+      });
+      console.log('ak-sheets initialized for integration testing');
+    } catch (error) {
+      console.warn(`Warning: Failed to initialize ak-sheets: ${error.message}`);
+      console.warn('Integration tests will be skipped.');
+      global.testConfig.skipIntegrationTests = true;
+    }
   }
-}
+})();

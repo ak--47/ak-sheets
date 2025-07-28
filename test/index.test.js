@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-	init,
+	initSheets,
 	createSheet,
 	writeToSheet,
 	getSheet,
@@ -45,15 +45,16 @@ describe('ak-sheets Streamlined Integration Tests', () => {
 	});
 
 	describe('Core Functionality', () => {
-		it('should initialize properly', () => {
+		it('should initialize properly', async () => {
 			if (global.testConfig.skipIntegrationTests) return;
 
-			expect(() => {
-				init({
+			await expect(async () => {
+				await initSheets({
 					credentials: global.testConfig.credentialsFile,
 					environment: 'test',
 					maxRetries: 3, // Reduced for faster tests
-					maxBackoffMs: 10000 // Reduced for faster tests
+					maxBackoffMs: 10000, // Reduced for faster tests
+					validateAuth: false // Skip auth validation to avoid duplicate API calls
 				});
 			}).not.toThrow();
 		});

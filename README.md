@@ -20,10 +20,10 @@ npm install ak-sheets
 ```
 
 ```javascript
-import { init, createSheet, writeToSheet, getSheet } from 'ak-sheets';
+import { initSheets, createSheet, writeToSheet, getSheet } from 'ak-sheets';
 
 // Initialize with credentials
-init({
+await initSheets({
   credentials: './path/to/credentials.json',
   environment: 'dev'
 });
@@ -48,10 +48,10 @@ console.log(readData); // [{ name: 'John', age: '30', city: 'NYC' }, ...]
 ### Initialization Options
 
 ```javascript
-import { init } from 'ak-sheets';
+import { initSheets } from 'ak-sheets';
 
 // Option 1: Credentials object
-init({
+await initSheets({
   credentials: {
     type: "service_account",
     project_id: "your-project",
@@ -60,16 +60,16 @@ init({
 });
 
 // Option 2: File path
-init({
+await initSheets({
   credentials: './credentials.json'
 });
 
 // Option 3: Environment variable
 // Set SHEETS_CREDENTIALS=./credentials.json
-init({});
+await initSheets({});
 
 // Option 4: Custom retry configuration
-init({
+await initSheets({
   credentials: './credentials.json',
   maxRetries: 3,
   maxBackoffMs: 32000
@@ -165,7 +165,7 @@ ak-sheets implements robust exponential backoff retry logic to handle Google She
 
 ### Retry Configuration
 ```javascript
-init({
+await initSheets({
   credentials: './credentials.json',
   maxRetries: 5,        // Max retry attempts (default: 5)
   maxBackoffMs: 64000   // Max backoff time in ms (default: 64s)

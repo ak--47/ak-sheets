@@ -12,7 +12,7 @@ import { createHash } from 'crypto';
 import xlsx from 'xlsx';
 
 let credentials = null;
-// Default logger - will be reconfigured in init()
+// Default logger - will be reconfigured in initSheets()
 let logger = pino({ level: 'info' });
 let environment = 'prod';
 /** @type {any} */
@@ -22,7 +22,7 @@ let sheets = null;
 /** @type {any} */
 let drive = null;
 
-// Retry configuration - can be overridden in init()
+// Retry configuration - can be overridden in initSheets()
 let maxRetries = 5;
 let maxBackoffMs = 64000;
 
@@ -167,10 +167,10 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
  * Validates authentication by making a simple API call
  * @returns {Promise<boolean>} True if auth is valid, throws error if not
  * @example
- * import { init, validateAuth } from 'ak-sheets';
+ * import { initSheets, validateAuth } from 'ak-sheets';
  * 
  * // Initialize first
- * await init({ credentials: './credentials.json' });
+ * await initSheets({ credentials: './credentials.json' });
  * 
  * // Manually validate auth
  * try {
@@ -182,7 +182,7 @@ async function retryWithBackoff(apiCall, customMaxRetries, customMaxBackoff) {
  */
 export async function validateAuth() {
     if (!sheets || !drive) {
-        throw new Error('Authentication not initialized. Call init() first.');
+        throw new Error('Authentication not initialized. Call initSheets() first.');
     }
 
     try {
@@ -224,10 +224,10 @@ export async function validateAuth() {
  * Initializes the ak-sheets library with configuration
  * @param {import('./index.d.ts').AkSheetsConfig} config - Configuration options
  * @example
- * import { init } from 'ak-sheets';
+ * import { initSheets } from 'ak-sheets';
  * 
  * // Initialize with credentials object
- * init({
+ * await initSheets({
  *   credentials: {
  *     type: "service_account",
  *     project_id: "your-project",
@@ -237,7 +237,7 @@ export async function validateAuth() {
  * });
  * 
  * // Initialize with file path and custom retry settings
- * init({
+ * await initSheets({
  *   credentials: './credentials.json',
  *   environment: 'prod',
  *   maxRetries: 3,
@@ -246,29 +246,29 @@ export async function validateAuth() {
  * 
  * // Initialize using environment variables
  * // Set SHEETS_CREDENTIALS=./credentials.json
- * init({});
+ * await initSheets({});
  * 
  * // Custom logging level and retry configuration
  * // Set LOG_LEVEL=debug for verbose output
- * init({ 
+ * await initSheets({ 
  *   credentials: './credentials.json',
  *   maxRetries: 10,
  *   maxBackoffMs: 120000
  * });
  * 
  * // Initialize and test authentication immediately
- * await init({
+ * await initSheets({
  *   credentials: './credentials.json',
  *   validateAuth: true  // Default behavior
  * });
  * 
  * // Skip auth validation during init (faster startup)
- * await init({
+ * await initSheets({
  *   credentials: './credentials.json',
  *   validateAuth: false
  * });
  */
-export async function init(config) {
+export async function initSheets(config) {
     credentials = loadCredentials(config.credentials);
     
     // Use passed environment, then NODE_ENV, then default to 'prod'
@@ -356,7 +356,7 @@ function makeName() {
  */
 export async function createSheet(name = makeName(), tabs = []) {
     if (!sheets || !drive) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ name, tabs }, 'Creating spreadsheet');
@@ -456,7 +456,7 @@ export async function createSheet(name = makeName(), tabs = []) {
  */
 export async function writeToSheet(spreadsheetId, rows = "", tab) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tab, dataType: typeof rows }, 'Writing to sheet');
@@ -578,7 +578,7 @@ export async function writeToSheet(spreadsheetId, rows = "", tab) {
  */
 export async function writeToSheetTabs(spreadsheetId, assets = {}) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     const tabs = Object.keys(assets);
@@ -676,7 +676,7 @@ export async function writeToSheetTabs(spreadsheetId, assets = {}) {
  */
 export async function shareSheet(spreadsheetId, options) {
     if (!drive) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     const {
@@ -724,7 +724,7 @@ export async function shareSheet(spreadsheetId, options) {
  */
 export async function deleteSheet(spreadsheetId) {
     if (!drive) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId }, 'Deleting spreadsheet');
@@ -779,7 +779,7 @@ export function getURL(spreadsheetId) {
  */
 export async function listOwnedSpreadsheets() {
     if (!drive) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug('Listing owned spreadsheets');
@@ -1022,7 +1022,7 @@ function writeCache(cacheKey, data) {
  */
 export async function getSheet(spreadsheetId, tab, format = 'json', shouldGetAllTabs = false) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tab, format, shouldGetAllTabs }, 'Reading sheet data');
@@ -1177,7 +1177,7 @@ function mergeData(existingData, newData) {
  */
 export async function updateSheet(spreadsheetId, newData, tab) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tab }, 'Updating sheet data');
@@ -1386,7 +1386,7 @@ export function jsonToCsv(jsonData, options = {}) {
  */
 export async function appendToSheet(spreadsheetId, rows, tab) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tab, dataType: typeof rows }, 'Appending to sheet');
@@ -1457,7 +1457,7 @@ export async function appendToSheet(spreadsheetId, rows, tab) {
  */
 export async function clearSheet(spreadsheetId, tab) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tab }, 'Clearing sheet data');
@@ -1496,7 +1496,7 @@ export async function clearSheet(spreadsheetId, tab) {
  */
 export async function getSheetInfo(spreadsheetId) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId }, 'Getting sheet info');
@@ -1546,7 +1546,7 @@ export async function getSheetInfo(spreadsheetId) {
  */
 export async function getRange(spreadsheetId, range, tab, format = 'json') {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, range, tab, format }, 'Reading range data');
@@ -1627,7 +1627,7 @@ export async function getRange(spreadsheetId, range, tab, format = 'json') {
  */
 export async function writeToRange(spreadsheetId, range, data, tab) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, range, tab, dataType: typeof data }, 'Writing to range');
@@ -1708,7 +1708,7 @@ export async function writeToRange(spreadsheetId, range, data, tab) {
  */
 export async function addTab(spreadsheetId, tabName, options = {}) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     const { index, hidden = false, tabColor } = options;
@@ -1780,7 +1780,7 @@ export async function addTab(spreadsheetId, tabName, options = {}) {
  */
 export async function deleteTab(spreadsheetId, tabName) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, tabName }, 'Deleting tab');
@@ -1834,7 +1834,7 @@ export async function deleteTab(spreadsheetId, tabName) {
  */
 export async function renameTab(spreadsheetId, oldName, newName) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, oldName, newName }, 'Renaming tab');
@@ -1903,7 +1903,7 @@ export async function renameTab(spreadsheetId, oldName, newName) {
  */
 export async function duplicateTab(spreadsheetId, sourceTabName, newTabName) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId, sourceTabName, newTabName }, 'Duplicating tab');
@@ -1982,7 +1982,7 @@ export async function duplicateTab(spreadsheetId, sourceTabName, newTabName) {
  */
 export async function listTabs(spreadsheetId) {
     if (!sheets) {
-        throw new Error('ak-sheets not initialized. Call init() first.');
+        throw new Error('ak-sheets not initialized. Call initSheets() first.');
     }
 
     logger.debug({ spreadsheetId }, 'Listing tabs');
@@ -2011,10 +2011,10 @@ export async function listTabs(spreadsheetId) {
  * Default export object with all sheet operations
  * @example
  * import sheet from 'ak-sheets';
- * import { init } from 'ak-sheets';
+ * import { initSheets } from 'ak-sheets';
  * 
  * // Initialize first
- * init({ credentials: './credentials.json' });
+ * await initSheets({ credentials: './credentials.json' });
  * 
  * // Use default export methods
  * const id = await sheet.create('My Spreadsheet');
